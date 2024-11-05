@@ -1,6 +1,6 @@
 {
   "file_name": "_Layout.cshtml",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\Pages\\Shared\\_Layout.cshtml",
+  "path": "Pages\\Shared\\_Layout.cshtml",
   "content": "﻿<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>@ViewData[\"Title\"] - RagOnCodebase</title>\n    <link rel=\"stylesheet\" href=\"~/lib/bootstrap/dist/css/bootstrap.min.css\" />\n    <link rel=\"stylesheet\" href=\"~/css/site.css\" asp-append-version=\"true\" />\n    <link rel=\"stylesheet\" href=\"~/RagOnCodebase.styles.css\" asp-append-version=\"true\" />\n</head>\n<body>\n    <div class=\"container\">\n        <main role=\"main\" class=\"pb-3\">\n            @RenderBody()\n        </main>\n    </div>\n    <script src=\"~/lib/jquery/dist/jquery.min.js\"></script>\n    <script src=\"~/lib/bootstrap/dist/js/bootstrap.bundle.min.js\"></script>\n    <script src=\"~/js/site.js\" asp-append-version=\"true\"></script>\n\n    @await RenderSectionAsync(\"Scripts\", required: false)\n</body>\n</html>",
   "embedding": [
     -0.017507443,

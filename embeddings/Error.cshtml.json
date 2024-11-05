@@ -1,6 +1,6 @@
 {
   "file_name": "Error.cshtml",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\Pages\\Error.cshtml",
+  "path": "Pages\\Error.cshtml",
   "content": "﻿@page\n@model ErrorModel\n@{\n    ViewData[\"Title\"] = \"Error\";\n}\n\n<h1 class=\"text-danger\">Error.</h1>\n<h2 class=\"text-danger\">An error occurred while processing your request.</h2>\n\n@if (Model.ShowRequestId)\n{\n    <p>\n        <strong>Request ID:</strong> <code>@Model.RequestId</code>\n    </p>\n}\n\n<h3>Development Mode</h3>\n<p>\n    Swapping to the <strong>Development</strong> environment displays detailed information about the error that occurred.\n</p>\n<p>\n    <strong>The Development environment shouldn't be enabled for deployed applications.</strong>\n    It can result in displaying sensitive information from exceptions to end users.\n    For local debugging, enable the <strong>Development</strong> environment by setting the <strong>ASPNETCORE_ENVIRONMENT</strong> environment variable to <strong>Development</strong>\n    and restarting the app.\n</p>\n",
   "embedding": [
     -0.007110059,

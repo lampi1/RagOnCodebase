@@ -1,6 +1,6 @@
 {
   "file_name": "Privacy.cshtml",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\Pages\\Privacy.cshtml",
+  "path": "Pages\\Privacy.cshtml",
   "content": "﻿@page\n@model PrivacyModel\n@{\n    ViewData[\"Title\"] = \"Privacy Policy\";\n}\n<h1>@ViewData[\"Title\"]</h1>\n\n<p>Use this page to detail your site's privacy policy.</p>\n",
   "embedding": [
     0.010592515,

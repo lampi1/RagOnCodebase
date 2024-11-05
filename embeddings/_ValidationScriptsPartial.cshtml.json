@@ -1,6 +1,6 @@
 {
   "file_name": "_ValidationScriptsPartial.cshtml",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\Pages\\Shared\\_ValidationScriptsPartial.cshtml",
+  "path": "Pages\\Shared\\_ValidationScriptsPartial.cshtml",
   "content": "﻿<script src=\"~/lib/jquery-validation/dist/jquery.validate.min.js\"></script>\n<script src=\"~/lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js\"></script>\n",
   "embedding": [
     -0.0327049,

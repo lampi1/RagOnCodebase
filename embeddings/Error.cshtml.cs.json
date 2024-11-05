@@ -1,6 +1,6 @@
 {
   "file_name": "Error.cshtml.cs",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\Pages\\Error.cshtml.cs",
+  "path": "Pages\\Error.cshtml.cs",
   "content": "using System.Diagnostics;\nusing Microsoft.AspNetCore.Mvc;\nusing Microsoft.AspNetCore.Mvc.RazorPages;\n\nnamespace RagOnCodebase.Pages;\n\n[ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]\n[IgnoreAntiforgeryToken]\npublic class ErrorModel : PageModel\n{\n    public string? RequestId { get; set; }\n\n    public bool ShowRequestId => !string.IsNullOrEmpty(RequestId);\n\n    private readonly ILogger<ErrorModel> _logger;\n\n    public ErrorModel(ILogger<ErrorModel> logger)\n    {\n        _logger = logger;\n    }\n\n    public void OnGet()\n    {\n        RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier;\n    }\n}\n\n",
   "embedding": [
     0.00027597204,

@@ -1,6 +1,6 @@
 {
   "file_name": "Chat.cshtml.cs",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\Pages\\Chat.cshtml.cs",
+  "path": "Pages\\Chat.cshtml.cs",
   "content": "using Microsoft.AspNetCore.Mvc;\nusing Microsoft.AspNetCore.Mvc.RazorPages;\nusing System.Collections.Generic;\nusing System.Threading.Tasks;\n\npublic class ChatModel : PageModel\n{\n    private readonly ChatService _chatService;\n\n    public ChatModel(ChatService chatService)\n    {\n        _chatService = chatService;\n    }\n\n    [BindProperty]\n    public string UserInput { get; set; }\n\n    public List<(string Role, string Content)> ChatHistory { get; set; } = new();\n\n    public async Task OnPostAsync()\n    {\n        if (!string.IsNullOrEmpty(UserInput))\n        {\n            var response = await _chatService.GetResponseAsync(UserInput);\n            ChatHistory.Add((\"Utente\", UserInput));\n            ChatHistory.Add((\"Assistente\", response));\n        }\n    }\n}\n\n",
   "embedding": [
     -0.016119424,

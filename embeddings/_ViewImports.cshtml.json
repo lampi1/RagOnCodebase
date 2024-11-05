@@ -1,6 +1,6 @@
 {
   "file_name": "_ViewImports.cshtml",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\Pages\\_ViewImports.cshtml",
+  "path": "Pages\\_ViewImports.cshtml",
   "content": "﻿@using RagOnCodebase\n@namespace RagOnCodebase.Pages\n@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers\n",
   "embedding": [
     -0.004767651,

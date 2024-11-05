@@ -1,6 +1,6 @@
 {
   "file_name": "Index.cshtml",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\Pages\\Index.cshtml",
+  "path": "Pages\\Index.cshtml",
   "content": "﻿@page\n@model IndexModel\n@{\n    ViewData[\"Title\"] = \"Home page\";\n}\n\n<div class=\"text-center\">\n    <h1 class=\"display-4\">Welcome</h1>\n    <p>Learn about <a href=\"https://learn.microsoft.com/aspnet/core\">building Web apps with ASP.NET Core</a>.</p>\n</div>\n",
   "embedding": [
     -0.0066797286,

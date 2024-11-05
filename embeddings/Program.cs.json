@@ -1,6 +1,6 @@
 {
   "file_name": "Program.cs",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\Program.cs",
+  "path": "Program.cs",
   "content": "var builder = WebApplication.CreateBuilder(args);\n\n// Registra i servizi\nbuilder.Services.AddSingleton<ChatService>();\nbuilder.Services.AddRazorPages();\nbuilder.Configuration.AddJsonFile(\"appsettings.json\", optional: false, reloadOnChange: true);\n\nvar app = builder.Build();\n\napp.UseRouting();\napp.UseAuthorization();\n\n// Reindirizza la root (\"/\") alla pagina di chat (\"/Chat\")\napp.MapGet(\"/\", async context =>\n{\n    context.Response.Redirect(\"/Chat\");\n    await Task.CompletedTask;\n});\napp.MapRazorPages();\napp.Run();",
   "embedding": [
     0.021854207,

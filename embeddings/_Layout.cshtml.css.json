@@ -1,6 +1,6 @@
 {
   "file_name": "_Layout.cshtml.css",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\Pages\\Shared\\_Layout.cshtml.css",
+  "path": "Pages\\Shared\\_Layout.cshtml.css",
   "content": "﻿/* Please see documentation at https://learn.microsoft.com/aspnet/core/client-side/bundling-and-minification\nfor details on configuring this project to bundle and minify static web assets. */\n\na.navbar-brand {\n  white-space: normal;\n  text-align: center;\n  word-break: break-all;\n}\n\na {\n  color: #0077cc;\n}\n\n.btn-primary {\n  color: #fff;\n  background-color: #1b6ec2;\n  border-color: #1861ac;\n}\n\n.nav-pills .nav-link.active, .nav-pills .show > .nav-link {\n  color: #fff;\n  background-color: #1b6ec2;\n  border-color: #1861ac;\n}\n\n.border-top {\n  border-top: 1px solid #e5e5e5;\n}\n.border-bottom {\n  border-bottom: 1px solid #e5e5e5;\n}\n\n.box-shadow {\n  box-shadow: 0 .25rem .75rem rgba(0, 0, 0, .05);\n}\n\nbutton.accept-policy {\n  font-size: 1rem;\n  line-height: inherit;\n}\n\n.footer {\n  position: absolute;\n  bottom: 0;\n  width: 100%;\n  white-space: nowrap;\n  line-height: 60px;\n}\n",
   "embedding": [
     -0.012808406,

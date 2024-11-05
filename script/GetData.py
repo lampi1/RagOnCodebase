@@ -44,6 +44,8 @@ for root, dirs, files in os.walk(repo_path):
     
     for file_name in files:
         file_path = os.path.join(root, file_name)
+        relative_path = os.path.relpath(file_path, repo_path)  # Path relativo alla cartella del progetto
+
         try:
             with open(file_path, 'r', encoding='utf-8') as file:
                 content = file.read()
@@ -52,7 +54,7 @@ for root, dirs, files in os.walk(repo_path):
                 
                 document = {
                     "file_name": file_name,
-                    "path": file_path,
+                    "path": relative_path,
                     "content": content,
                     "embedding": embedding
                 }

@@ -1,6 +1,6 @@
 {
   "file_name": "_ViewStart.cshtml",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\Pages\\_ViewStart.cshtml",
+  "path": "Pages\\_ViewStart.cshtml",
   "content": "﻿@{\n    Layout = \"_Layout\";\n}\n",
   "embedding": [
     -0.024594864,

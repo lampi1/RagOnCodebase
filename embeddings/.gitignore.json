@@ -1,6 +1,6 @@
 {
   "file_name": ".gitignore",
-  "path": "c:\\Users\\d.baldassarre\\source\\repos\\RagOnCodebase\\.gitignore",
+  "path": ".gitignore",
   "content": "bin\nobj\nappsettings.json",
   "embedding": [
     -0.0032808692,
