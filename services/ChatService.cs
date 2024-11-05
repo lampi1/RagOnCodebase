@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Elasticsearch.Net;
 using Nest;
+using System.Text.RegularExpressions;
 
 public class ChatService
 {
@@ -38,7 +39,7 @@ public class ChatService
 
         _chatHistory = new List<ChatMessageContent>
         {
-            new ChatMessageContent("system", "Sei un'assistente virtuale per un team di sviluppo software, progettata per rispondere alle domande tecniche e di progetto degli utenti (USER) in modo preciso e sintetico. Il tuo compito è utilizzare i dettagli forniti nei messaggi di sistema, che contengono estratti di file, documentazione e altre informazioni rilevanti del progetto. Rispondi alle domande basandoti su queste informazioni e mantieni una memoria a breve termine delle risposte e dei dettagli discussi. Se un utente chiede qualcosa di non specificato nei messaggi di sistema, chiedi gentilmente ulteriori dettagli come il nome di un file o di una classe per chiarire meglio la richiesta. Assumi un tono professionale e gentile, supportando gli sviluppatori con informazioni concise, ma non esitare a richiedere dettagli aggiuntivi quando necessario per rispondere con precisione.")
+            new ChatMessageContent("system", "Devi cercare di rispondere alle domande dell' utente ('user') in modo breve e conciso e basare le tue risposte sul contenuto del progetto che sono pezzi di file con content (contenuto del progetto) filename (nome del file) e path (percorso del file nel progetto). Se l'utente non ti fa domande relative al progetto puoi rispondere in modo generico e dire che tu sei qui per rispondere alle domande del progetto. Sii consapevole che il progetto sono pezzi di file che ti do in base alla domanda dell' utente, se non hai il contenuto necessario significa che l'utente non ti ha fatto domande specifiche.")
         };
     }
 
@@ -78,48 +79,56 @@ public class ChatService
             throw;
         }
     }
-    public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryText)
+public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryText)
+{
+    try
     {
-        try
-        {
-            var queryEmbedding = await GenerateEmbeddingAsync(queryText);
+        var queryEmbedding = await GenerateEmbeddingAsync(queryText);
 
-            var searchResponse = _elasticClient.Search<dynamic>(s => s
-                .Query(q => q
-                    .ScriptScore(ss => ss
-                        .Query(qq => qq.MatchAll())
-                        .Script(script => script
-                            .Source("cosineSimilarity(params.query_vector, 'embedding') + 1.0")
-                            .Params(p => p.Add("query_vector", queryEmbedding))
-                        )
+        var searchResponse = _elasticClient.Search<dynamic>(s => s
+            .Query(q => q
+                .ScriptScore(ss => ss
+                    .Query(qq => qq.MatchAll())
+                    .Script(script => script
+                        .Source("cosineSimilarity(params.query_vector, 'embedding') + 1.0")
+                        .Params(p => p.Add("query_vector", queryEmbedding))
                     )
                 )
-                .Size(2)
-            );
+            )
+            .Size(1)
+        );
 
-            if (!searchResponse.IsValid)
-            {
-                Console.WriteLine($"Errore nella ricerca: {searchResponse.DebugInformation}");
-                return new List<string>();
-            }
-
-            var documents = new List<string>();
-            foreach (var hit in searchResponse.Hits)
-            {
-                if (hit.Source.TryGetValue("content", out object contentValue))
-                {
-                    documents.Add(contentValue.ToString());
-                }
-            }
-
-            return documents;
-        }
-        catch (Exception ex)
+        if (!searchResponse.IsValid)
         {
-            Console.WriteLine($"Errore durante la ricerca dei documenti: {ex.Message}");
+            Console.WriteLine($"Errore nella ricerca: {searchResponse.DebugInformation}");
             return new List<string>();
         }
+
+        var documents = new List<string>();
+        foreach (var hit in searchResponse.Hits)
+        {
+            // Usa TryGetValue per verificare la presenza dei campi
+            hit.Source.TryGetValue("content", out object contentValue);
+            hit.Source.TryGetValue("file_name", out object fileNameValue);
+            hit.Source.TryGetValue("path", out object pathValue);
+
+            string content = contentValue?.ToString() ?? "N/A";
+            string fileName = fileNameValue?.ToString() ?? "N/A";
+            string path = pathValue?.ToString() ?? "N/A";
+
+            string document = $"Content: {content}, File Name: {fileName}, Path: {path}";
+            documents.Add(document);
+        }
+
+
+        return documents;
     }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Errore durante la ricerca dei documenti: {ex.Message}");
+        return new List<string>();
+    }
+}
 
     public async Task<string> GetResponseAsync(string userInput)
     {
@@ -128,16 +137,24 @@ public class ChatService
             _chatHistory.Add(new ChatMessageContent("user", userInput));
 
             var searchResults = await SearchDocumentsWithEmbeddingAsync(userInput);
-
+            var finalContent = $"CONTENUTO DEL PROGETTO CHE DEVI ANALIZZARE ATTENTAMENTE PER RISPONDERE ALL' UTENTE:";
             foreach (var result in searchResults)
             {
-                _chatHistory.Add(new ChatMessageContent("system", $"CONTESTO DI PROGETTO: {result}"));
+                finalContent += $"{result}";
             }
 
-            const int maxHistoryMessages = 7;
+            _chatHistory.Add(new ChatMessageContent("system", $"{finalContent}"));
+
+            const int maxHistoryMessages = 4;
+
             if (_chatHistory.Count > maxHistoryMessages)
             {
-                _chatHistory.RemoveRange(0, _chatHistory.Count - maxHistoryMessages);
+                // Mantieni il primo messaggio di sistema e limita i successivi a un massimo di 3
+                var systemMessage = _chatHistory[0];
+                var recentMessages = _chatHistory.Skip(_chatHistory.Count - (maxHistoryMessages - 1)).ToList();
+                _chatHistory.Clear();
+                _chatHistory.Add(systemMessage);
+                _chatHistory.AddRange(recentMessages);
             }
             var messages = _chatHistory.Select(message => new
             {
@@ -147,9 +164,9 @@ public class ChatService
 
             var requestBody = new
             {
-                model = "gpt-35-turbo",
                 messages = messages,
                 max_tokens = 500,
+                temperature = 0.5, // Valore per rendere le risposte più variate
             };
 
             var jsonString = JsonSerializer.Serialize(requestBody);
@@ -187,12 +204,19 @@ public class ChatService
 
     private string CleanContent(string content)
     {
-        return content.Replace("\n", " ")
-                      .Replace("\r", " ")
-                      .Replace("\\", " ")
-                      .Replace("\"", "'")
-                      .Replace("\t", " ")
-                      .Trim();
+        // Rimuove i commenti di linea (//) preservando le stringhe
+        content = Regex.Replace(content, @"(?<!:)//.*", string.Empty);
+
+        // Rimuove i commenti di blocco (/* */) preservando le stringhe
+        content = Regex.Replace(content, @"/\*.*?\*/", string.Empty, RegexOptions.Singleline);
+
+        // Rimuove linee vuote e spaziature superflue
+        content = Regex.Replace(content, @"^\s*$\n|\r", string.Empty, RegexOptions.Multiline);
+
+        // Rimuove spaziature all'inizio e alla fine del testo
+        content = content.Trim();
+
+        return content;
     }
 }
 
