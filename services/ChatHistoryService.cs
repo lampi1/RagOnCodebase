@@ -5,12 +5,13 @@ public class ChatHistoryService : IChatHistoryService
     private readonly List<ChatMessageContent> _chatHistory;
     private readonly object _lock = new object();
 
-    public ChatHistoryService()
+    public ChatHistoryService(bool initializeWithDefaultMessage = true)
     {
-        _chatHistory = new List<ChatMessageContent>
+        _chatHistory = new List<ChatMessageContent>();
+        if (initializeWithDefaultMessage)
         {
-            new ChatMessageContent("system", "Devi cercare di rispondere alle domande dell' utente ('user') in modo breve e conciso e basare le tue risposte sul contenuto del progetto che sono pezzi di file con content (contenuto del progetto) filename (nome del file) e path (percorso del file nel progetto). Se l'utente non ti fa domande relative al progetto puoi rispondere in modo generico e dire che tu sei qui per rispondere alle domande del progetto. Sii consapevole che il progetto sono pezzi di file che ti do in base alla domanda dell' utente, se non hai il contenuto necessario significa che l'utente non ti ha fatto domande specifiche.")
-        };
+            _chatHistory.Add(new ChatMessageContent("system", "Devi cercare di rispondere alle domande dell' utente ('user') in modo breve e conciso e basare le tue risposte sul contenuto del progetto che sono pezzi di file con content (contenuto del progetto) filename (nome del file) e path (percorso del file nel progetto). Se l'utente non ti fa domande relative al progetto puoi rispondere in modo generico e dire che tu sei qui per rispondere alle domande del progetto. Sii consapevole che il progetto sono pezzi di file che ti do in base alla domanda dell' utente, se non hai il contenuto necessario significa che l'utente non ti ha fatto domande specifiche."));
+        }
     }
 
     public void AddMessage(ChatMessageContent message)

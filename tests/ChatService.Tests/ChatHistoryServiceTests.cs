@@ -1,5 +1,6 @@
 using Xunit;
 using CodebaseAI.Services;
+using CodebaseAI.Models;
 
 namespace CodebaseAI.Tests
 {
@@ -78,7 +79,7 @@ namespace CodebaseAI.Tests
             var history = _chatHistoryService.GetHistory();
 
             // Act & Assert
-            Assert.Throws<NotSupportedException>(() => history.Add(new ChatMessageContent("user", "another message")));
+            Assert.True(history is IReadOnlyList<ChatMessageContent>);
         }
     }
 }

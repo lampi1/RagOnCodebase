@@ -11,34 +11,35 @@ public class ChatService
     private readonly ElasticClient _elasticClient;
     private readonly IChatHistoryService _chatHistoryService;
     private readonly ILocalizationService _localizationService;
-    private readonly string _azureEmbeddingEndpoint;
-    private readonly string _azureCompletionEndpoint;
-    private readonly string _elasticApiKey;
-    private readonly string _elasticCloudID;
-    private readonly string _elasticCloudEndpoint;
+    private readonly ILogger<ChatService> _logger;
+    private readonly AzureOpenAIOptions _azureOptions;
+    private readonly ElasticsearchOptions _elasticOptions;
 
     public ChatService(
         IHttpClientFactory httpClientFactory,
-        IConfiguration configuration, 
+        IOptions<AzureOpenAIOptions> azureOptions,
+        IOptions<ElasticsearchOptions> elasticOptions,
         IChatHistoryService chatHistoryService,
-        ILocalizationService localizationService)
+        ILocalizationService localizationService,
+        ILogger<ChatService> logger)
     {
         _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
         _chatHistoryService = chatHistoryService ?? throw new ArgumentNullException(nameof(chatHistoryService));
         _localizationService = localizationService ?? throw new ArgumentNullException(nameof(localizationService));
-        
-        _azureEmbeddingEndpoint = configuration["AzureOpenAI:EmbeddingEndpoint"];
-        _azureCompletionEndpoint = configuration["AzureOpenAI:CompletionEndpoint"];
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _azureOptions = azureOptions?.Value ?? throw new ArgumentNullException(nameof(azureOptions));
+        _elasticOptions = elasticOptions?.Value ?? throw new ArgumentNullException(nameof(elasticOptions));
 
-        _elasticApiKey = configuration["ElasticSearch:ApiKey"];
-        _elasticCloudID = configuration["ElasticSearch:CloudId"];
-        _elasticCloudEndpoint = configuration["ElasticSearch:CloudEndPoint"];
+        _elasticClient = CreateElasticClient(_elasticOptions);
+    }
 
-        var cloudSettings = new ConnectionSettings(new Uri(_elasticCloudEndpoint))
-            .DefaultIndex("codebase_index_v2")
-            .ApiKeyAuthentication(new ApiKeyAuthenticationCredentials(_elasticApiKey));
+    private static ElasticClient CreateElasticClient(ElasticsearchOptions options)
+    {
+        var cloudSettings = new ConnectionSettings(new Uri(options.CloudEndPoint))
+            .DefaultIndex(options.DefaultIndex)
+            .ApiKeyAuthentication(new ApiKeyAuthenticationCredentials(options.ApiKey));
 
-        _elasticClient = new ElasticClient(cloudSettings);
+        return new ElasticClient(cloudSettings);
     }
 
     public async Task<float[]> GenerateEmbeddingAsync(string text)
@@ -50,7 +51,7 @@ public class ChatService
             var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
 
             var client = _httpClientFactory.CreateClient("AzureOpenAI");
-            var response = await client.PostAsync(_azureEmbeddingEndpoint, content);
+            var response = await client.PostAsync(_azureOptions.EmbeddingEndpoint, content);
             response.EnsureSuccessStatusCode();
 
             var responseString = await response.Content.ReadAsStringAsync();
@@ -78,19 +79,31 @@ public class ChatService
             throw;
         }
     }
+/// <summary>
+/// Searches for documents using semantic similarity with the provided query text.
+/// </summary>
+/// <param name="queryText">The text to search for.</param>
+/// <param name="options">The search options including pagination and sorting preferences.</param>
+/// <returns>A paginated result containing matching documents.</returns>
+/// <exception cref="ArgumentNullException">Thrown when queryText is null or empty.</exception>
+/// <exception cref="ArgumentException">Thrown when search options are invalid.</exception>
 public async Task<PaginatedResult<string>> SearchDocumentsWithEmbeddingAsync(
-    string queryText, 
-    int pageSize = 10, 
-    int pageNumber = 1)
+    string queryText,
+    SearchOptions options = null)
 {
+    if (string.IsNullOrEmpty(queryText))
+    {
+        throw new ArgumentNullException(nameof(queryText), "Query text cannot be null or empty.");
+    }
+
+    options ??= new SearchOptions();
+    options.Validate();
+
     try
     {
-        if (pageSize < 1) pageSize = 10;
-        if (pageNumber < 1) pageNumber = 1;
-
         var queryEmbedding = await GenerateEmbeddingAsync(queryText);
 
-        var searchResponse = await _elasticClient.SearchAsync<dynamic>(s => s
+        var searchRequest = new SearchDescriptor<dynamic>()
             .Query(q => q
                 .ScriptScore(ss => ss
                     .Query(qq => qq.MatchAll())
@@ -100,15 +113,31 @@ public async Task<PaginatedResult<string>> SearchDocumentsWithEmbeddingAsync(
                     )
                 )
             )
-            .From((pageNumber - 1) * pageSize)
-            .Size(pageSize)
-            .TrackTotalHits()
-        );
+            .From((options.PageNumber - 1) * options.PageSize)
+            .Size(options.PageSize)
+            .TrackTotalHits();
+
+        // Add sorting based on the selected option
+        switch (options.SortBy)
+        {
+            case SearchSortOption.DateAscending:
+                searchRequest = searchRequest.Sort(s => s.Ascending("date"));
+                break;
+            case SearchSortOption.DateDescending:
+                searchRequest = searchRequest.Sort(s => s.Descending("date"));
+                break;
+            case SearchSortOption.FileName:
+                searchRequest = searchRequest.Sort(s => s.Ascending("file_name.keyword"));
+                break;
+            // For Relevance, we use the default script score sorting
+        }
+
+        var searchResponse = await _elasticClient.SearchAsync<dynamic>(searchRequest);
 
         if (!searchResponse.IsValid)
         {
-            Console.WriteLine(_localizationService.GetString("SearchError", searchResponse.DebugInformation));
-            return new PaginatedResult<string>(Array.Empty<string>(), pageNumber, pageSize, 0);
+            _logger.LogError("Search failed: {ErrorMessage}", searchResponse.DebugInformation);
+            throw new InvalidOperationException($"Search operation failed: {searchResponse.ServerError?.Error?.Reason}");
         }
 
         var documents = new List<string>();
@@ -117,26 +146,29 @@ public async Task<PaginatedResult<string>> SearchDocumentsWithEmbeddingAsync(
             hit.Source.TryGetValue("content", out object contentValue);
             hit.Source.TryGetValue("file_name", out object fileNameValue);
             hit.Source.TryGetValue("path", out object pathValue);
+            hit.Source.TryGetValue("date", out object dateValue);
 
             string content = contentValue?.ToString() ?? "N/A";
             string fileName = fileNameValue?.ToString() ?? "N/A";
             string path = pathValue?.ToString() ?? "N/A";
+            string date = dateValue?.ToString() ?? "N/A";
+            double score = hit.Score ?? 0.0;
 
-            string document = $"Content: {content}, File Name: {fileName}, Path: {path}";
+            string document = $"Content: {content}\nFile: {fileName}\nPath: {path}\nDate: {date}\nRelevance Score: {score:F2}";
             documents.Add(document);
         }
 
         return new PaginatedResult<string>(
-            documents, 
-            pageNumber, 
-            pageSize, 
+            documents,
+            options.PageNumber,
+            options.PageSize,
             (int)searchResponse.Total
         );
     }
-    catch (Exception ex)
+    catch (Exception ex) when (ex is not ArgumentException && ex is not ArgumentNullException)
     {
-        Console.WriteLine(_localizationService.GetString("SearchError", ex.Message));
-        return new PaginatedResult<string>(Array.Empty<string>(), pageNumber, pageSize, 0);
+        _logger.LogError(ex, "Error occurred while searching documents with query: {QueryText}", queryText);
+        throw new InvalidOperationException("An error occurred while searching documents. Please try again later.", ex);
     }
 }
 
@@ -146,7 +178,8 @@ public async Task<PaginatedResult<string>> SearchDocumentsWithEmbeddingAsync(
         {
             _chatHistoryService.AddMessage(new ChatMessageContent("user", userInput));
 
-            var searchResults = await SearchDocumentsWithEmbeddingAsync(userInput, pageSize: 5, pageNumber: 1);
+            var searchOptions = new SearchOptions { PageSize = 5, PageNumber = 1, SortBy = SearchSortOption.Relevance };
+            var searchResults = await SearchDocumentsWithEmbeddingAsync(userInput, searchOptions);
             var finalContent = $"CONTENUTO DEL PROGETTO CHE DEVI ANALIZZARE ATTENTAMENTE PER RISPONDERE ALL' UTENTE:";
             foreach (var result in searchResults.Items)
             {
@@ -175,7 +208,7 @@ public async Task<PaginatedResult<string>> SearchDocumentsWithEmbeddingAsync(
             var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
 
             // Invio la richiesta all'IA di Azure
-            string azureChatEndpoint = _azureCompletionEndpoint;
+            string azureChatEndpoint = _azureOptions.CompletionEndpoint;
             var client = _httpClientFactory.CreateClient("AzureOpenAI");
             var response = await client.PostAsync(azureChatEndpoint, content);
             response.EnsureSuccessStatusCode();

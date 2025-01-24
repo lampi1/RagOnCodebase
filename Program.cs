@@ -25,10 +25,19 @@ builder.Services.AddOptions<ElasticsearchOptions>()
     .Bind(builder.Configuration.GetSection("Elasticsearch"))
     .ValidateDataAnnotations();
 
-// Configure HttpClient
-builder.Services.AddHttpClient("AzureOpenAI", client =>
+// Configure logging
+builder.Services.AddLogging(logging =>
 {
-    client.DefaultRequestHeaders.Add("api-key", builder.Configuration["AzureOpenAI:ApiKey"]);
+    logging.ClearProviders();
+    logging.AddConsole();
+    logging.AddDebug();
+});
+
+// Configure HttpClient
+builder.Services.AddHttpClient("AzureOpenAI", (serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<AzureOpenAIOptions>>().Value;
+    client.DefaultRequestHeaders.Add("api-key", options.ApiKey);
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 

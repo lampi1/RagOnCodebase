@@ -16,6 +16,6 @@ public class PaginatedResult<T>
         PageNumber = pageNumber;
         PageSize = pageSize;
         TotalCount = totalCount;
-        TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+        TotalPages = totalCount == 0 ? 1 : (int)Math.Ceiling(totalCount / (double)pageSize);
     }
 }

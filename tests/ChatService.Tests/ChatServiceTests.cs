@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text.Json;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Moq;
 using Moq.Protected;
@@ -13,26 +12,37 @@ namespace CodebaseAI.Tests
     public class ChatServiceTests
     {
         private readonly Mock<IHttpClientFactory> _httpClientFactoryMock;
-        private readonly Mock<IConfiguration> _configurationMock;
         private readonly Mock<IChatHistoryService> _chatHistoryServiceMock;
         private readonly Mock<ILocalizationService> _localizationServiceMock;
         private readonly Mock<HttpMessageHandler> _httpMessageHandlerMock;
+        private readonly Mock<IOptions<AzureOpenAIOptions>> _azureOptionsMock;
+        private readonly Mock<IOptions<ElasticsearchOptions>> _elasticOptionsMock;
 
         public ChatServiceTests()
         {
             _httpClientFactoryMock = new Mock<IHttpClientFactory>();
-            _configurationMock = new Mock<IConfiguration>();
             _chatHistoryServiceMock = new Mock<IChatHistoryService>();
             _localizationServiceMock = new Mock<ILocalizationService>();
             _httpMessageHandlerMock = new Mock<HttpMessageHandler>();
+            _azureOptionsMock = new Mock<IOptions<AzureOpenAIOptions>>();
+            _elasticOptionsMock = new Mock<IOptions<ElasticsearchOptions>>();
 
-            // Setup configuration
-            _configurationMock.Setup(x => x["AzureOpenAI:ApiKey"]).Returns("test-key");
-            _configurationMock.Setup(x => x["AzureOpenAI:EmbeddingEndpoint"]).Returns("https://test.openai.azure.com/embeddings");
-            _configurationMock.Setup(x => x["AzureOpenAI:CompletionEndpoint"]).Returns("https://test.openai.azure.com/chat/completions");
-            _configurationMock.Setup(x => x["ElasticSearch:ApiKey"]).Returns("test-elastic-key");
-            _configurationMock.Setup(x => x["ElasticSearch:CloudId"]).Returns("test-cloud-id");
-            _configurationMock.Setup(x => x["ElasticSearch:CloudEndPoint"]).Returns("https://test.elastic.cloud");
+            // Setup Azure OpenAI options
+            _azureOptionsMock.Setup(x => x.Value).Returns(new AzureOpenAIOptions
+            {
+                ApiKey = "test-key",
+                EmbeddingEndpoint = "https://test.openai.azure.com/embeddings",
+                CompletionEndpoint = "https://test.openai.azure.com/chat/completions"
+            });
+
+            // Setup Elasticsearch options
+            _elasticOptionsMock.Setup(x => x.Value).Returns(new ElasticsearchOptions
+            {
+                ApiKey = "test-elastic-key",
+                CloudId = "test-cloud-id",
+                CloudEndpoint = "https://test.elastic.cloud",
+                DefaultIndex = "codebase_index_v2"
+            });
 
             // Setup HttpClient
             var httpClient = new HttpClient(_httpMessageHandlerMock.Object);
@@ -66,7 +76,8 @@ namespace CodebaseAI.Tests
 
             var chatService = new ChatService(
                 _httpClientFactoryMock.Object,
-                _configurationMock.Object,
+                _azureOptionsMock.Object,
+                _elasticOptionsMock.Object,
                 _chatHistoryServiceMock.Object,
                 _localizationServiceMock.Object
             );
@@ -101,7 +112,8 @@ namespace CodebaseAI.Tests
 
             var chatService = new ChatService(
                 _httpClientFactoryMock.Object,
-                _configurationMock.Object,
+                _azureOptionsMock.Object,
+                _elasticOptionsMock.Object,
                 _chatHistoryServiceMock.Object,
                 _localizationServiceMock.Object
             );
@@ -121,7 +133,8 @@ namespace CodebaseAI.Tests
             // Arrange
             var chatService = new ChatService(
                 _httpClientFactoryMock.Object,
-                _configurationMock.Object,
+                _azureOptionsMock.Object,
+                _elasticOptionsMock.Object,
                 _chatHistoryServiceMock.Object,
                 _localizationServiceMock.Object
             );
@@ -163,7 +176,8 @@ namespace CodebaseAI.Tests
             // Arrange
             var chatService = new ChatService(
                 _httpClientFactoryMock.Object,
-                _configurationMock.Object,
+                _azureOptionsMock.Object,
+                _elasticOptionsMock.Object,
                 _chatHistoryServiceMock.Object,
                 _localizationServiceMock.Object
             );
