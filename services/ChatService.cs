@@ -15,7 +15,7 @@ public class ChatService
     private readonly string _elasticApiKey;
     private readonly string _elasticCloudID;
     private readonly string _elasticCloudEndpoint;
-
+    //@devloai optimize this file
     public ChatService(IConfiguration configuration)
     {
         _azureApiKey = configuration["AzureOpenAI:ApiKey"];
