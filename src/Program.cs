@@ -1,4 +1,6 @@
 using CodebaseAI.Models;
+using CodebaseAI.Services;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,9 +28,10 @@ builder.Services.AddOptions<ElasticsearchOptions>()
     .ValidateDataAnnotations();
 
 // Configure HttpClient
-builder.Services.AddHttpClient("AzureOpenAI", client =>
+builder.Services.AddHttpClient("AzureOpenAI", (sp, client) =>
 {
-    client.DefaultRequestHeaders.Add("api-key", builder.Configuration["AzureOpenAI:ApiKey"]);
+    var options = sp.GetRequiredService<IOptions<AzureOpenAIOptions>>().Value;
+    client.DefaultRequestHeaders.Add("api-key", options.ApiKey);
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
@@ -40,14 +43,15 @@ builder.Services.AddRazorPages();
 
 var app = builder.Build();
 
+app.UseRequestLocalization();
 app.UseRouting();
 app.UseAuthorization();
 
-// Reindirizza la root ("/") alla pagina di chat ("/Chat")
 app.MapGet("/", async context =>
 {
     context.Response.Redirect("/Chat");
     await Task.CompletedTask;
 });
+
 app.MapRazorPages();
 app.Run();

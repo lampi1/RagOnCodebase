@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <data name="HttpRequestError" xml:space="preserve">
+    <value>HTTP request error: {0}</value>
+  </data>
+  <data name="JsonDeserializationError" xml:space="preserve">
+    <value>JSON deserialization error: {0}</value>
+  </data>
+  <data name="GeneralError" xml:space="preserve">
+    <value>An error occurred: {0}</value>
+  </data>
+  <data name="SearchError" xml:space="preserve">
+    <value>Search error: {0}</value>
+  </data>
+  <data name="CompletionServiceError" xml:space="preserve">
+    <value>Error during completion service request.</value>
+  </data>
+  <data name="CompletionResponseError" xml:space="preserve">
+    <value>Error processing completion service response.</value>
+  </data>
+  <data name="GeneralCompletionError" xml:space="preserve">
+    <value>An error occurred while generating the response.</value>
+  </data>
+</root>

@@ -3,44 +3,42 @@ using System.Text.Json;
 using Elasticsearch.Net;
 using Nest;
 using System.Text.RegularExpressions;
+using CodebaseAI.Models;
 
 public class ChatService
 {
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ElasticClient _elasticClient;
-    private readonly List<ChatMessageContent> _chatHistory;
-    private readonly string _azureApiKey;
+    private readonly IChatHistoryService _chatHistoryService;
+    private readonly ILocalizationService _localizationService;
     private readonly string _azureEmbeddingEndpoint;
     private readonly string _azureCompletionEndpoint;
     private readonly string _elasticApiKey;
     private readonly string _elasticCloudID;
     private readonly string _elasticCloudEndpoint;
-    //@devloai optimize this file
-    public ChatService(IConfiguration configuration)
+
+    public ChatService(
+        IHttpClientFactory httpClientFactory,
+        IConfiguration configuration, 
+        IChatHistoryService chatHistoryService,
+        ILocalizationService localizationService)
     {
-        _azureApiKey = configuration["AzureOpenAI:ApiKey"];
+        _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+        _chatHistoryService = chatHistoryService ?? throw new ArgumentNullException(nameof(chatHistoryService));
+        _localizationService = localizationService ?? throw new ArgumentNullException(nameof(localizationService));
+        
         _azureEmbeddingEndpoint = configuration["AzureOpenAI:EmbeddingEndpoint"];
         _azureCompletionEndpoint = configuration["AzureOpenAI:CompletionEndpoint"];
 
         _elasticApiKey = configuration["ElasticSearch:ApiKey"];
         _elasticCloudID = configuration["ElasticSearch:CloudId"];
         _elasticCloudEndpoint = configuration["ElasticSearch:CloudEndPoint"];
-        _httpClient = new HttpClient
-        {
-            Timeout = Timeout.InfiniteTimeSpan
-        };
-        _httpClient.DefaultRequestHeaders.Add("api-key", _azureApiKey);
 
         var cloudSettings = new ConnectionSettings(new Uri(_elasticCloudEndpoint))
             .DefaultIndex("codebase_index_v2")
             .ApiKeyAuthentication(new ApiKeyAuthenticationCredentials(_elasticApiKey));
 
         _elasticClient = new ElasticClient(cloudSettings);
-
-        _chatHistory = new List<ChatMessageContent>
-        {
-            new ChatMessageContent("system", "Devi cercare di rispondere alle domande dell' utente ('user') in modo breve e conciso e basare le tue risposte sul contenuto del progetto che sono pezzi di file con content (contenuto del progetto) filename (nome del file) e path (percorso del file nel progetto). Se l'utente non ti fa domande relative al progetto puoi rispondere in modo generico e dire che tu sei qui per rispondere alle domande del progetto. Sii consapevole che il progetto sono pezzi di file che ti do in base alla domanda dell' utente, se non hai il contenuto necessario significa che l'utente non ti ha fatto domande specifiche.")
-        };
     }
 
     public async Task<float[]> GenerateEmbeddingAsync(string text)
@@ -51,7 +49,8 @@ public class ChatService
             var jsonString = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.PostAsync(_azureEmbeddingEndpoint, content);
+            var client = _httpClientFactory.CreateClient("AzureOpenAI");
+            var response = await client.PostAsync(_azureEmbeddingEndpoint, content);
             response.EnsureSuccessStatusCode();
 
             var responseString = await response.Content.ReadAsStringAsync();
@@ -65,27 +64,33 @@ public class ChatService
         }
         catch (HttpRequestException ex)
         {
-            Console.WriteLine($"Errore nella richiesta HTTP: {ex.Message}");
+            Console.WriteLine(_localizationService.GetString("HttpRequestError", ex.Message));
             throw;
         }
         catch (JsonException ex)
         {
-            Console.WriteLine($"Errore nella deserializzazione JSON: {ex.Message}");
+            Console.WriteLine(_localizationService.GetString("JsonDeserializationError", ex.Message));
             throw;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Errore generico durante la generazione dell'embedding: {ex.Message}");
+            Console.WriteLine(_localizationService.GetString("GeneralError", ex.Message));
             throw;
         }
     }
-public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryText)
+public async Task<PaginatedResult<string>> SearchDocumentsWithEmbeddingAsync(
+    string queryText, 
+    int pageSize = 10, 
+    int pageNumber = 1)
 {
     try
     {
+        if (pageSize < 1) pageSize = 10;
+        if (pageNumber < 1) pageNumber = 1;
+
         var queryEmbedding = await GenerateEmbeddingAsync(queryText);
 
-        var searchResponse = _elasticClient.Search<dynamic>(s => s
+        var searchResponse = await _elasticClient.SearchAsync<dynamic>(s => s
             .Query(q => q
                 .ScriptScore(ss => ss
                     .Query(qq => qq.MatchAll())
@@ -95,19 +100,20 @@ public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryTe
                     )
                 )
             )
-            .Size(1)
+            .From((pageNumber - 1) * pageSize)
+            .Size(pageSize)
+            .TrackTotalHits()
         );
 
         if (!searchResponse.IsValid)
         {
-            Console.WriteLine($"Errore nella ricerca: {searchResponse.DebugInformation}");
-            return new List<string>();
+            Console.WriteLine(_localizationService.GetString("SearchError", searchResponse.DebugInformation));
+            return new PaginatedResult<string>(Array.Empty<string>(), pageNumber, pageSize, 0);
         }
 
         var documents = new List<string>();
         foreach (var hit in searchResponse.Hits)
         {
-            // Usa TryGetValue per verificare la presenza dei campi
             hit.Source.TryGetValue("content", out object contentValue);
             hit.Source.TryGetValue("file_name", out object fileNameValue);
             hit.Source.TryGetValue("path", out object pathValue);
@@ -120,13 +126,17 @@ public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryTe
             documents.Add(document);
         }
 
-
-        return documents;
+        return new PaginatedResult<string>(
+            documents, 
+            pageNumber, 
+            pageSize, 
+            (int)searchResponse.Total
+        );
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"Errore durante la ricerca dei documenti: {ex.Message}");
-        return new List<string>();
+        Console.WriteLine(_localizationService.GetString("SearchError", ex.Message));
+        return new PaginatedResult<string>(Array.Empty<string>(), pageNumber, pageSize, 0);
     }
 }
 
@@ -134,32 +144,24 @@ public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryTe
     {
         try
         {
-            _chatHistory.Add(new ChatMessageContent("user", userInput));
+            _chatHistoryService.AddMessage(new ChatMessageContent("user", userInput));
 
-            var searchResults = await SearchDocumentsWithEmbeddingAsync(userInput);
+            var searchResults = await SearchDocumentsWithEmbeddingAsync(userInput, pageSize: 5, pageNumber: 1);
             var finalContent = $"CONTENUTO DEL PROGETTO CHE DEVI ANALIZZARE ATTENTAMENTE PER RISPONDERE ALL' UTENTE:";
-            foreach (var result in searchResults)
+            foreach (var result in searchResults.Items)
             {
                 finalContent += $"{result}";
             }
 
-            _chatHistory.Add(new ChatMessageContent("system", $"{finalContent}"));
+            _chatHistoryService.AddMessage(new ChatMessageContent("system", $"{finalContent}"));
 
             const int maxHistoryMessages = 4;
+            _chatHistoryService.TrimHistory(maxHistoryMessages);
 
-            if (_chatHistory.Count > maxHistoryMessages)
-            {
-                // Mantieni il primo messaggio di sistema e limita i successivi a un massimo di 3
-                var systemMessage = _chatHistory[0];
-                var recentMessages = _chatHistory.Skip(_chatHistory.Count - (maxHistoryMessages - 1)).ToList();
-                _chatHistory.Clear();
-                _chatHistory.Add(systemMessage);
-                _chatHistory.AddRange(recentMessages);
-            }
-            var messages = _chatHistory.Select(message => new
+            var messages = _chatHistoryService.GetHistory().Select(message => new
             {
                 role = message.Role,
-                content = CleanContent(message.Content)
+                content = message.Content
             }).ToList();
 
             var requestBody = new
@@ -174,7 +176,8 @@ public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryTe
 
             // Invio la richiesta all'IA di Azure
             string azureChatEndpoint = _azureCompletionEndpoint;
-            var response = await _httpClient.PostAsync(azureChatEndpoint, content);
+            var client = _httpClientFactory.CreateClient("AzureOpenAI");
+            var response = await client.PostAsync(azureChatEndpoint, content);
             response.EnsureSuccessStatusCode();
 
             var responseString = await response.Content.ReadAsStringAsync();
@@ -182,42 +185,26 @@ public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryTe
             var choices = (JsonElement)jsonResponse["choices"];
             var messageContent = choices[0].GetProperty("message").GetProperty("content").GetString();
 
-            _chatHistory.Add(new ChatMessageContent("assistant", messageContent));
+            _chatHistoryService.AddMessage(new ChatMessageContent("assistant", messageContent));
             return messageContent;
         }
         catch (HttpRequestException ex)
         {
-            Console.WriteLine($"Errore nella richiesta HTTP: {ex.Message}");
-            return "Errore durante la richiesta al servizio di completamento.";
+            Console.WriteLine(_localizationService.GetString("HttpRequestError", ex.Message));
+            return _localizationService.GetString("CompletionServiceError");
         }
         catch (JsonException ex)
         {
-            Console.WriteLine($"Errore nella deserializzazione JSON: {ex.Message}");
-            return "Errore durante l'elaborazione della risposta del servizio di completamento.";
+            Console.WriteLine(_localizationService.GetString("JsonDeserializationError", ex.Message));
+            return _localizationService.GetString("CompletionResponseError");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Errore generico durante la generazione della risposta: {ex.Message}");
-            return "Si è verificato un errore durante la generazione della risposta.";
+            Console.WriteLine(_localizationService.GetString("GeneralError", ex.Message));
+            return _localizationService.GetString("GeneralCompletionError");
         }
     }
 
-    private string CleanContent(string content)
-    {
-        // Rimuove i commenti di linea (//) preservando le stringhe
-        content = Regex.Replace(content, @"(?<!:)//.*", string.Empty);
-
-        // Rimuove i commenti di blocco (/* */) preservando le stringhe
-        content = Regex.Replace(content, @"/\*.*?\*/", string.Empty, RegexOptions.Singleline);
-
-        // Rimuove linee vuote e spaziature superflue
-        content = Regex.Replace(content, @"^\s*$\n|\r", string.Empty, RegexOptions.Multiline);
-
-        // Rimuove spaziature all'inizio e alla fine del testo
-        content = content.Trim();
-
-        return content;
-    }
 }
 
 public class ChatMessageContent
