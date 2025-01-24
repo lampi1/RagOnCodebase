@@ -3,44 +3,43 @@ using System.Text.Json;
 using Elasticsearch.Net;
 using Nest;
 using System.Text.RegularExpressions;
+using CodebaseAI.Models;
 
 public class ChatService
 {
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ElasticClient _elasticClient;
-    private readonly List<ChatMessageContent> _chatHistory;
-    private readonly string _azureApiKey;
-    private readonly string _azureEmbeddingEndpoint;
-    private readonly string _azureCompletionEndpoint;
-    private readonly string _elasticApiKey;
-    private readonly string _elasticCloudID;
-    private readonly string _elasticCloudEndpoint;
+    private readonly IChatHistoryService _chatHistoryService;
+    private readonly ILocalizationService _localizationService;
+    private readonly ILogger<ChatService> _logger;
+    private readonly AzureOpenAIOptions _azureOptions;
+    private readonly ElasticsearchOptions _elasticOptions;
 
-    public ChatService(IConfiguration configuration)
+    public ChatService(
+        IHttpClientFactory httpClientFactory,
+        IOptions<AzureOpenAIOptions> azureOptions,
+        IOptions<ElasticsearchOptions> elasticOptions,
+        IChatHistoryService chatHistoryService,
+        ILocalizationService localizationService,
+        ILogger<ChatService> logger)
     {
-        _azureApiKey = configuration["AzureOpenAI:ApiKey"];
-        _azureEmbeddingEndpoint = configuration["AzureOpenAI:EmbeddingEndpoint"];
-        _azureCompletionEndpoint = configuration["AzureOpenAI:CompletionEndpoint"];
+        _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+        _chatHistoryService = chatHistoryService ?? throw new ArgumentNullException(nameof(chatHistoryService));
+        _localizationService = localizationService ?? throw new ArgumentNullException(nameof(localizationService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _azureOptions = azureOptions?.Value ?? throw new ArgumentNullException(nameof(azureOptions));
+        _elasticOptions = elasticOptions?.Value ?? throw new ArgumentNullException(nameof(elasticOptions));
 
-        _elasticApiKey = configuration["ElasticSearch:ApiKey"];
-        _elasticCloudID = configuration["ElasticSearch:CloudId"];
-        _elasticCloudEndpoint = configuration["ElasticSearch:CloudEndPoint"];
-        _httpClient = new HttpClient
-        {
-            Timeout = Timeout.InfiniteTimeSpan
-        };
-        _httpClient.DefaultRequestHeaders.Add("api-key", _azureApiKey);
+        _elasticClient = CreateElasticClient(_elasticOptions);
+    }
 
-        var cloudSettings = new ConnectionSettings(new Uri(_elasticCloudEndpoint))
-            .DefaultIndex("codebase_index_v2")
-            .ApiKeyAuthentication(new ApiKeyAuthenticationCredentials(_elasticApiKey));
+    private static ElasticClient CreateElasticClient(ElasticsearchOptions options)
+    {
+        var cloudSettings = new ConnectionSettings(new Uri(options.CloudEndPoint))
+            .DefaultIndex(options.DefaultIndex)
+            .ApiKeyAuthentication(new ApiKeyAuthenticationCredentials(options.ApiKey));
 
-        _elasticClient = new ElasticClient(cloudSettings);
-
-        _chatHistory = new List<ChatMessageContent>
-        {
-            new ChatMessageContent("system", "Devi cercare di rispondere alle domande dell' utente ('user') in modo breve e conciso e basare le tue risposte sul contenuto del progetto che sono pezzi di file con content (contenuto del progetto) filename (nome del file) e path (percorso del file nel progetto). Se l'utente non ti fa domande relative al progetto puoi rispondere in modo generico e dire che tu sei qui per rispondere alle domande del progetto. Sii consapevole che il progetto sono pezzi di file che ti do in base alla domanda dell' utente, se non hai il contenuto necessario significa che l'utente non ti ha fatto domande specifiche.")
-        };
+        return new ElasticClient(cloudSettings);
     }
 
     public async Task<float[]> GenerateEmbeddingAsync(string text)
@@ -51,7 +50,8 @@ public class ChatService
             var jsonString = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.PostAsync(_azureEmbeddingEndpoint, content);
+            var client = _httpClientFactory.CreateClient("AzureOpenAI");
+            var response = await client.PostAsync(_azureOptions.EmbeddingEndpoint, content);
             response.EnsureSuccessStatusCode();
 
             var responseString = await response.Content.ReadAsStringAsync();
@@ -65,27 +65,45 @@ public class ChatService
         }
         catch (HttpRequestException ex)
         {
-            Console.WriteLine($"Errore nella richiesta HTTP: {ex.Message}");
+            Console.WriteLine(_localizationService.GetString("HttpRequestError", ex.Message));
             throw;
         }
         catch (JsonException ex)
         {
-            Console.WriteLine($"Errore nella deserializzazione JSON: {ex.Message}");
+            Console.WriteLine(_localizationService.GetString("JsonDeserializationError", ex.Message));
             throw;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Errore generico durante la generazione dell'embedding: {ex.Message}");
+            Console.WriteLine(_localizationService.GetString("GeneralError", ex.Message));
             throw;
         }
     }
-public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryText)
+/// <summary>
+/// Searches for documents using semantic similarity with the provided query text.
+/// </summary>
+/// <param name="queryText">The text to search for.</param>
+/// <param name="options">The search options including pagination and sorting preferences.</param>
+/// <returns>A paginated result containing matching documents.</returns>
+/// <exception cref="ArgumentNullException">Thrown when queryText is null or empty.</exception>
+/// <exception cref="ArgumentException">Thrown when search options are invalid.</exception>
+public async Task<PaginatedResult<string>> SearchDocumentsWithEmbeddingAsync(
+    string queryText,
+    SearchOptions options = null)
 {
+    if (string.IsNullOrEmpty(queryText))
+    {
+        throw new ArgumentNullException(nameof(queryText), "Query text cannot be null or empty.");
+    }
+
+    options ??= new SearchOptions();
+    options.Validate();
+
     try
     {
         var queryEmbedding = await GenerateEmbeddingAsync(queryText);
 
-        var searchResponse = _elasticClient.Search<dynamic>(s => s
+        var searchRequest = new SearchDescriptor<dynamic>()
             .Query(q => q
                 .ScriptScore(ss => ss
                     .Query(qq => qq.MatchAll())
@@ -95,38 +113,62 @@ public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryTe
                     )
                 )
             )
-            .Size(1)
-        );
+            .From((options.PageNumber - 1) * options.PageSize)
+            .Size(options.PageSize)
+            .TrackTotalHits();
+
+        // Add sorting based on the selected option
+        switch (options.SortBy)
+        {
+            case SearchSortOption.DateAscending:
+                searchRequest = searchRequest.Sort(s => s.Ascending("date"));
+                break;
+            case SearchSortOption.DateDescending:
+                searchRequest = searchRequest.Sort(s => s.Descending("date"));
+                break;
+            case SearchSortOption.FileName:
+                searchRequest = searchRequest.Sort(s => s.Ascending("file_name.keyword"));
+                break;
+            // For Relevance, we use the default script score sorting
+        }
+
+        var searchResponse = await _elasticClient.SearchAsync<dynamic>(searchRequest);
 
         if (!searchResponse.IsValid)
         {
-            Console.WriteLine($"Errore nella ricerca: {searchResponse.DebugInformation}");
-            return new List<string>();
+            _logger.LogError("Search failed: {ErrorMessage}", searchResponse.DebugInformation);
+            throw new InvalidOperationException($"Search operation failed: {searchResponse.ServerError?.Error?.Reason}");
         }
 
         var documents = new List<string>();
         foreach (var hit in searchResponse.Hits)
         {
-            // Usa TryGetValue per verificare la presenza dei campi
             hit.Source.TryGetValue("content", out object contentValue);
             hit.Source.TryGetValue("file_name", out object fileNameValue);
             hit.Source.TryGetValue("path", out object pathValue);
+            hit.Source.TryGetValue("date", out object dateValue);
 
             string content = contentValue?.ToString() ?? "N/A";
             string fileName = fileNameValue?.ToString() ?? "N/A";
             string path = pathValue?.ToString() ?? "N/A";
+            string date = dateValue?.ToString() ?? "N/A";
+            double score = hit.Score ?? 0.0;
 
-            string document = $"Content: {content}, File Name: {fileName}, Path: {path}";
+            string document = $"Content: {content}\nFile: {fileName}\nPath: {path}\nDate: {date}\nRelevance Score: {score:F2}";
             documents.Add(document);
         }
 
-
-        return documents;
+        return new PaginatedResult<string>(
+            documents,
+            options.PageNumber,
+            options.PageSize,
+            (int)searchResponse.Total
+        );
     }
-    catch (Exception ex)
+    catch (Exception ex) when (ex is not ArgumentException && ex is not ArgumentNullException)
     {
-        Console.WriteLine($"Errore durante la ricerca dei documenti: {ex.Message}");
-        return new List<string>();
+        _logger.LogError(ex, "Error occurred while searching documents with query: {QueryText}", queryText);
+        throw new InvalidOperationException("An error occurred while searching documents. Please try again later.", ex);
     }
 }
 
@@ -134,32 +176,25 @@ public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryTe
     {
         try
         {
-            _chatHistory.Add(new ChatMessageContent("user", userInput));
+            _chatHistoryService.AddMessage(new ChatMessageContent("user", userInput));
 
-            var searchResults = await SearchDocumentsWithEmbeddingAsync(userInput);
+            var searchOptions = new SearchOptions { PageSize = 5, PageNumber = 1, SortBy = SearchSortOption.Relevance };
+            var searchResults = await SearchDocumentsWithEmbeddingAsync(userInput, searchOptions);
             var finalContent = $"CONTENUTO DEL PROGETTO CHE DEVI ANALIZZARE ATTENTAMENTE PER RISPONDERE ALL' UTENTE:";
-            foreach (var result in searchResults)
+            foreach (var result in searchResults.Items)
             {
                 finalContent += $"{result}";
             }
 
-            _chatHistory.Add(new ChatMessageContent("system", $"{finalContent}"));
+            _chatHistoryService.AddMessage(new ChatMessageContent("system", $"{finalContent}"));
 
             const int maxHistoryMessages = 4;
+            _chatHistoryService.TrimHistory(maxHistoryMessages);
 
-            if (_chatHistory.Count > maxHistoryMessages)
-            {
-                // Mantieni il primo messaggio di sistema e limita i successivi a un massimo di 3
-                var systemMessage = _chatHistory[0];
-                var recentMessages = _chatHistory.Skip(_chatHistory.Count - (maxHistoryMessages - 1)).ToList();
-                _chatHistory.Clear();
-                _chatHistory.Add(systemMessage);
-                _chatHistory.AddRange(recentMessages);
-            }
-            var messages = _chatHistory.Select(message => new
+            var messages = _chatHistoryService.GetHistory().Select(message => new
             {
                 role = message.Role,
-                content = CleanContent(message.Content)
+                content = message.Content
             }).ToList();
 
             var requestBody = new
@@ -173,8 +208,9 @@ public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryTe
             var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
 
             // Invio la richiesta all'IA di Azure
-            string azureChatEndpoint = _azureCompletionEndpoint;
-            var response = await _httpClient.PostAsync(azureChatEndpoint, content);
+            string azureChatEndpoint = _azureOptions.CompletionEndpoint;
+            var client = _httpClientFactory.CreateClient("AzureOpenAI");
+            var response = await client.PostAsync(azureChatEndpoint, content);
             response.EnsureSuccessStatusCode();
 
             var responseString = await response.Content.ReadAsStringAsync();
@@ -182,42 +218,26 @@ public async Task<List<string>> SearchDocumentsWithEmbeddingAsync(string queryTe
             var choices = (JsonElement)jsonResponse["choices"];
             var messageContent = choices[0].GetProperty("message").GetProperty("content").GetString();
 
-            _chatHistory.Add(new ChatMessageContent("assistant", messageContent));
+            _chatHistoryService.AddMessage(new ChatMessageContent("assistant", messageContent));
             return messageContent;
         }
         catch (HttpRequestException ex)
         {
-            Console.WriteLine($"Errore nella richiesta HTTP: {ex.Message}");
-            return "Errore durante la richiesta al servizio di completamento.";
+            Console.WriteLine(_localizationService.GetString("HttpRequestError", ex.Message));
+            return _localizationService.GetString("CompletionServiceError");
         }
         catch (JsonException ex)
         {
-            Console.WriteLine($"Errore nella deserializzazione JSON: {ex.Message}");
-            return "Errore durante l'elaborazione della risposta del servizio di completamento.";
+            Console.WriteLine(_localizationService.GetString("JsonDeserializationError", ex.Message));
+            return _localizationService.GetString("CompletionResponseError");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Errore generico durante la generazione della risposta: {ex.Message}");
-            return "Si è verificato un errore durante la generazione della risposta.";
+            Console.WriteLine(_localizationService.GetString("GeneralError", ex.Message));
+            return _localizationService.GetString("GeneralCompletionError");
         }
     }
 
-    private string CleanContent(string content)
-    {
-        // Rimuove i commenti di linea (//) preservando le stringhe
-        content = Regex.Replace(content, @"(?<!:)//.*", string.Empty);
-
-        // Rimuove i commenti di blocco (/* */) preservando le stringhe
-        content = Regex.Replace(content, @"/\*.*?\*/", string.Empty, RegexOptions.Singleline);
-
-        // Rimuove linee vuote e spaziature superflue
-        content = Regex.Replace(content, @"^\s*$\n|\r", string.Empty, RegexOptions.Multiline);
-
-        // Rimuove spaziature all'inizio e alla fine del testo
-        content = content.Trim();
-
-        return content;
-    }
 }
 
 public class ChatMessageContent
